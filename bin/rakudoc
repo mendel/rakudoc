@@ -1,3 +1,38 @@
-#!/usr/bin/env raku
+#! /usr/bin/env raku
 
-use Rakudoc::CMD;
+use Rakudoc::CMD :MAIN;
+
+sub USAGE(Bool :$okay) {
+    say $*USAGE;
+
+    require Pod::To::Text;
+    say "\n", ::("Pod::To::Text").render($=pod);
+    exit 2 unless $okay;
+}
+
+my %*SUB-MAIN-OPTS = :named-anywhere;
+my &*USAGE = &USAGE;
+
+
+=begin pod
+
+=head1 NAME
+
+B<rakudoc> - Read Raku documentation
+
+=head1 SYNOPSIS
+
+    rakudoc List
+    rakudoc List.reduce
+    rakudoc .reduce
+
+=head1 ENVIRONMENT
+
+C<RAKUDOC> is a comma-separated list of directories to search
+
+=head1 SEE ALSO
+
+Documentable
+https://docs.raku.org/
+
+=end pod
