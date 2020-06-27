@@ -19,8 +19,8 @@ multi sub MAIN(
 )
 {
     my $rkd = Rakudoc.new: :$verbose, :doc-source(@doc);
-    my $pod = $rkd.get-it($query);
-    $rkd.show-it($pod);
+    my $pods = $rkd.get-it($query);
+    $rkd.show-it($pods);
 }
 
 multi sub MAIN(

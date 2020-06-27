@@ -1,24 +1,12 @@
 unit class Pod::Cache;
 
-role X::Pod::Cache is Exception {
+my role X::Pod::Cache is Exception {
 }
 
-class X::Pod::Cache::NoPodInCache is X::Pod::Cache {
-    has $.pod-file-path;
+my class X::Pod::Cache::BadSource does X::Pod::Cache {
+    has $.error;
     method message {
-        "No pod for {$!pod-file-path.Str.raku}. Has the path changed?"
-    }
-}
-
-class X::Pod::Cache::NoSources does X::Pod::Cache {
-    has $.doc-source;
-    method message { "No pod sources in {$!doc-source.Str.raku}." }
-}
-
-class X::Pod::Cache::BadSource does X::Pod::Cache {
-    has %.errors;
-    method message {
-        %!errors.fmt("File source %s has error:\n%s").join("\n")
+        $!error.fmt("File source %s has error:\n%s")
     }
 }
 
