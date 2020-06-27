@@ -7,7 +7,7 @@ our proto sub MAIN(|) is export(:MAIN) {
     {*}
 
     CATCH {
-        when X::Pod::From::Cache { $*ERR.put: $_; exit 2; }
+        when X::Pod::Cache { $*ERR.put: $_; exit 2; }
     }
 }
 

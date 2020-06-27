@@ -14,11 +14,9 @@
         "rakudoc" : "bin/rakudoc",
         "Rakudoc" : "lib/Rakudoc.rakumod",
         "Rakudoc::CMD" : "lib/Rakudoc/CMD.rakumod",
-        "Pod::From::Cache" : "lib/Pod/From/Cache.rakumod"
+        "Pod::Cache" : "lib/Pod/Cache.rakumod"
     },
     "depends" : [
-        "JSON::Fast:ver<0.9.18+>",
-        "Path::Finder:ver<0.2.0+>",
         "Documentable:ver<1.2.5+>"
     ],
     "build-depends" : [ ],
