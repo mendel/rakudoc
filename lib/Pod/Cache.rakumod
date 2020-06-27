@@ -1,15 +1,5 @@
 unit class Pod::Cache;
 
-my role X::Pod::Cache is Exception {
-}
-
-my class X::Pod::Cache::BadSource does X::Pod::Cache {
-    has $.error;
-    method message {
-        $!error.fmt("File source %s has error:\n%s")
-    }
-}
-
 
 has %.sources is SetHash;
 
@@ -29,39 +19,34 @@ submethod BUILD(
     );
 }
 
-method !load-pod($pod-file-path) {
+method !compunit-handle($pod-file-path) {
     my $t = $pod-file-path.IO.modified;
     my $id = CompUnit::PrecompilationId.new-from-string($pod-file-path);
-    %!ids{$pod-file-path} = $id.id;
-    my $handle;
-    my $checksum;
-    try {
-        ($handle, $checksum) = $!precomp-repo.load( $id, :src($pod-file-path), :since($t) );
-    }
-    if $! or ! $checksum.defined {
+    %!ids{$pod-file-path} = $id;
+    my ($handle, $) = $!precomp-repo.load( $id, :src($pod-file-path), :since($t) );
+    unless $handle {
+        note "Caching '$pod-file-path' to '$!cache-path'";
         $handle = $!precomp-repo.try-load(
             CompUnit::PrecompilationDependency::File.new(
                 :src($pod-file-path),
                 :$id,
                 :spec(CompUnit::DependencySpecification.new(:short-name($pod-file-path))),
             )
-        )
+        );
+        note "    - Survived with handle {$handle // 'NULL'}";
     }
 
     ++%!sources{$pod-file-path};
     return $handle;
-
-    CATCH {
-        default {
-            die X::Pod::Cache::BadSource.new: :errors(.message)
-        }
-    }
 }
 
 #| pod(Str $pod-file-path) returns the pod tree in the pod file
-method pod( Str $pod-file-path is copy ) {
+multi method pod(CompUnit::Handle $handle) {
     use nqp;
+    nqp::atkey($handle.unit, '$=pod')
+}
 
+multi method pod(Str $pod-file-path is copy) {
     # Canonical form for lookup consistency
     $pod-file-path = ~$pod-file-path.IO.resolve(:completely);
 
@@ -70,13 +55,13 @@ method pod( Str $pod-file-path is copy ) {
         $handle = $!precomp-repo.try-load(
             CompUnit::PrecompilationDependency::File.new(
                 :src($pod-file-path),
-                :id(CompUnit::PrecompilationId.new(%!ids{$pod-file-path}))
+                :id(%!ids{$pod-file-path})
                 ),
             );
     }
     else {
-        $handle = self!load-pod($pod-file-path);
+        $handle = self!compunit-handle($pod-file-path);
     }
 
-    nqp::atkey( $handle.unit, '$=pod' )
+    self.pod($handle);
 }

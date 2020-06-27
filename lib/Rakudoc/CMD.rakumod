@@ -3,24 +3,30 @@ unit module Rakudoc::CMD;
 use Rakudoc;
 
 our proto sub MAIN(|) is export(:MAIN) {
-
     {*}
-
-    CATCH {
-        when X::Pod::Cache { $*ERR.put: $_; exit 2; }
-    }
 }
+
+# $*USAGE shows the type name as "[-d|--doc=<Directory> ...]", so the
+# singular "Directory" reads better, even though it is an array
+subset Directory of Positional where { all($_) ~~ Str };
 
 multi sub MAIN(
     Str:D $query,
     Bool :v(:$verbose),
     #| Directories to search for documentation
-    :d(:@doc) where { all($_) ~~ Str },
+    Directory :d(:$doc) = Empty,
+    #| Only use directories specified with --doc / $RAKUDOC
+    Bool :D(:$no-default-docs),
 )
 {
-    my $rkd = Rakudoc.new: :$verbose, :doc-source(@doc);
-    my $pods = $rkd.get-it($query);
-    $rkd.show-it($pods);
+    my $rkd = Rakudoc.new:
+        :doc-source($doc),
+        :$no-default-docs,
+        :$verbose,
+        ;
+
+    my @docs = |$rkd.search-doc-dirs($query), |$rkd.search-compunits($query);
+    $rkd.display(@docs);
 }
 
 multi sub MAIN(

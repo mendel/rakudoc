@@ -1,7 +1,13 @@
 #! /usr/bin/env raku
 
 use Rakudoc::CMD :MAIN;
+my %*SUB-MAIN-OPTS = :named-anywhere;
 
+# To have 'rakudoc rakudoc' work naturally, the main Pod is here; in order
+# to keep all the 'multi MAIN' subs in Rakudoc::CMD, here's essentially a
+# global variable giving access to USAGE(). Perhaps in the future a simpler
+# mechanism can be devised.
+my &*USAGE = &USAGE;
 sub USAGE(Bool :$okay) {
     say $*USAGE;
 
@@ -9,9 +15,6 @@ sub USAGE(Bool :$okay) {
     say "\n", ::("Pod::To::Text").render($=pod);
     exit 2 unless $okay;
 }
-
-my %*SUB-MAIN-OPTS = :named-anywhere;
-my &*USAGE = &USAGE;
 
 
 =begin pod
