@@ -1,5 +1,6 @@
-# $?DISTRIBUTION.meta isn't defined yet, as of rakudo 2020.05.01.
+# $?DISTRIBUTION.meta isn't defined during compilation, as of rakudo 2020.05.01
 constant VERSION = $?DISTRIBUTION.meta<version> // '0.2.0';
+
 unit class Rakudoc:auth<github:Raku>:ver(VERSION):api<1>;
 
 use Documentable::Primary;
@@ -24,16 +25,15 @@ submethod TWEAK(:@doc-source is copy, :$!verbose, :$no-default-docs) {
     $!cache = Pod::Cache.new: :cache-path<rakudoc-cache>;
 }
 
-class Rakudoc::Doc {
-    has $.pod;
-    has $.origin;
 
-    method filename {
-        given $.origin {
-            when IO::Path { ~ .basename.IO.extension('', :parts(1)) }
-            when CompUnit { .Str }
-        }
-    }
+role Rakudoc::Doc {
+    has $.rakudoc;
+    has $.origin;
+    has $!pod;
+
+    method filename { ... }
+    method pod { ... }
+
     method documentable {
         die join "\n",
                 "Unexpected: doc pod '$.origin' has multiple elements:",
@@ -43,23 +43,85 @@ class Rakudoc::Doc {
             :pod($.pod.first),
             :$.filename,
     }
+    method Str { .ends-with("\n") ?? $_ !! "$_\n" given pod2text($.pod) }
+}
 
-    method Str { pod2text($!pod) }
+class Rakudoc::Doc::Path does Rakudoc::Doc {
+    method filename {
+        ~ $!origin.basename.IO.extension('', :parts(1))
+    }
+    method pod {
+        $!pod //= $!rakudoc.cache.pod($!origin.absolute)
+    }
+}
+
+class Rakudoc::Doc::File is Rakudoc::Doc::Path does Rakudoc::Doc {
+    method pod {
+        use Pod::Load;
+        $!pod //= load($!origin.absolute)
+    }
+}
+
+class Rakudoc::Doc::CompUnit does Rakudoc::Doc {
+    method filename {
+        $!origin.Str
+    }
+    method pod {
+        $!pod //= $!rakudoc.cache.pod($!origin.handle)
+    }
+}
+
+
+role Rakudoc::Request {
+    has $.rakudoc;
+    method search { ... }
+}
+
+class Rakudoc::Request::Module does Rakudoc::Request {
+    has $.short-name;
+    has $.defn;
+    method search {
+        | $!rakudoc.search-doc-dirs($!short-name),
+        | $!rakudoc.search-compunits($!short-name),
+    }
+}
+
+class Rakudoc::Request::File does Rakudoc::Request {
+    has $.file;
+    method search {
+        Rakudoc::Doc::File.new: :origin($!file.IO.resolve(:completely)), :$!rakudoc;
+    }
+}
+
+method request(Str $query) {
+    return Rakudoc::Request::File.new: :file($query.IO), :rakudoc(self)
+        if $query.IO.e;
+
+    grammar Rakudoc::Request::Grammar {
+        rule TOP { \S+ }
+    }
+
+    Rakudoc::Request::Grammar.new.parse($query)
+        or die X::Rakudoc::BadQuery.new: :$query;
+
+    note "PARSE: $/.raku()";
+    return Rakudoc::Request::Module.new: :short-name(~$/), :rakudoc(self);
 }
 
 method search-doc-dirs($fragment, :@extensions = @!extensions) {
     self!paths-for-fragment($fragment, :@extensions).map: {
-        Rakudoc::Doc.new: :pod($!cache.pod(~ .absolute)), :origin($_);
+        Rakudoc::Doc::Path.new: :origin($_), :rakudoc(self);
     }
 }
 
 method search-compunits($module) {
     self!locate-curli-module($module).map: {
-        Rakudoc::Doc.new: :pod($!cache.pod(.handle)), :origin($_);
+        Rakudoc::Doc::CompUnit.new: :origin($_), :rakudoc(self);
     }
 }
 
 method display(*@docs) {
+    note @docs.map(*.origin);
     my $text = @docs.join("\n\n");;
     my $pager = $*OUT.t && [//] |%*ENV<RAKUDOC_PAGER PAGER>, 'more';
     if $pager {

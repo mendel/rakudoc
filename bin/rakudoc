@@ -13,7 +13,7 @@ sub USAGE(Bool :$okay) {
 
     require Pod::To::Text;
     say "\n", ::("Pod::To::Text").render($=pod);
-    exit 2 unless $okay;
+    exit $okay ?? 0 !! 2;
 }
 
 
