@@ -9,7 +9,7 @@ use Pod::To::Text;
 #use Pod::Cache:ver($?DISTRIBUTION.meta<version>);  # Not ok in 2020.05.01
 use Pod::Cache:ver(VERSION);
 
-has $.cache;
+has $.data-dir is readonly;
 has @.doc-source;
 has @.extensions = <pod6 rakudoc pod p6 pm pm6>;
 has $.quiet;
@@ -20,7 +20,12 @@ my class X::Rakudoc::BadQuery is Exception {
     method message { "Unrecognized query '$!query'" }
 }
 
-submethod TWEAK(:@doc-source is copy, :$!verbose, :$no-default-docs) {
+submethod TWEAK(
+    :@doc-source is copy,
+    :$no-default-docs,
+    :$data-dir,
+    :$!verbose,
+) {
     if !@doc-source and %*ENV<RAKUDOC> {
         @doc-source = %*ENV<RAKUDOC>.split(',').map(*.trim);
     }
@@ -29,7 +34,8 @@ submethod TWEAK(:@doc-source is copy, :$!verbose, :$no-default-docs) {
             $*REPO.repo-chain.map({.?abspath.IO // Empty})».add('doc');
     }
     @!doc-source = grep *.d, map *.IO.resolve(:completely), @doc-source;
-    $!cache = Pod::Cache.new: :cache-path<rakudoc-cache>;
+
+    $!data-dir = self!resolve-data-dir($data-dir // %*ENV<RAKUDOC_DATA>);
 }
 
 
@@ -95,9 +101,12 @@ class Rakudoc::Doc::Path does Rakudoc::Doc {
     }
 }
 
-class Rakudoc::Doc::File is Rakudoc::Doc::Path does Rakudoc::Doc {
+class Rakudoc::Doc::File does Rakudoc::Doc {
     method gist {
         "Doc(*{$!origin.absolute})"
+    }
+    method filename {
+        ~ $!origin.basename.IO.extension('', :parts(1))
     }
     method pod {
         use Pod::Load;
@@ -127,7 +136,7 @@ role Rakudoc::Request {
 class Rakudoc::Request::Module does Rakudoc::Request {
     has $.short-name;
     method search {
-        die "Searching for a routine without a module name is not implemented yet"
+        die "Searching for a definition without a module name is not implemented yet"
             if not $!short-name;
         | $!rakudoc.search-doc-dirs(self),
         | $!rakudoc.search-compunits(self),
@@ -141,14 +150,22 @@ class Rakudoc::Request::File does Rakudoc::Request {
     }
 }
 
+
+method cache {
+    state $cache;
+    return $cache if $cache;
+    $!data-dir.mkdir unless $!data-dir.d;
+    $cache = Pod::Cache.new: :cache-path($!data-dir.add('cache'));
+}
+
 method request(Str $query) {
     return Rakudoc::Request::File.new: :file($query.IO), :rakudoc(self)
         if $query.IO.e;
 
     grammar Rakudoc::Request::Grammar {
-        token TOP { <module> <routine>? | <routine> }
+        token TOP { <module> <definition>? | <definition> }
         token module { <-[\s.]> + }
-        token routine { '.' <( <-[\s.]> + )> }
+        token definition { '.' <( <-[\s.]> + )> }
     }
 
     Rakudoc::Request::Grammar.new.parse($query)
@@ -156,7 +173,7 @@ method request(Str $query) {
 
     #note "PARSE: $/.raku()";
     return Rakudoc::Request::Module.new:
-            :rakudoc(self), :short-name($/<module>), :def($/<routine>);
+            :rakudoc(self), :short-name($/<module>), :def($/<definition>);
 }
 
 method search-doc-dirs($request, :@extensions = @!extensions) {
@@ -175,7 +192,9 @@ method display(*@docs) {
     my $text = @docs.join("\n\n");;
     my $pager = $*OUT.t && [//] |%*ENV<RAKUDOC_PAGER PAGER>, 'more';
     if $pager {
-        $pager = run :in, $pager;
+        # TODO Use Shell::WordSplit or whatever is out there; for now this
+        # makes a simple 'less -Fr' work
+        $pager = run :in, |$pager.comb(/\S+/);
         $pager.in.spurt($text, :close);
     }
     else {
@@ -187,15 +206,34 @@ method build-index {
     die "NOT YET IMPLEMENTED";
 }
 
-method !locate-curli-module($short-name) {
-    # TODO This is only the first one; keep on searching somehow?
-    my $cu = try $*REPO.need(CompUnit::DependencySpecification.new: :$short-name);
-    if $cu {
-        list $cu;
-    }
-    else {
-        Empty;
-    }
+method !resolve-data-dir($data-dir) {
+    # A major limitation is that currently there can only be a single
+    # Pod::Cache instance in a program, due to how precompilation guts work.
+    # This precludes having a read-only system-wide cache and a
+    # user-writable fallback. So for now, each user must build & update
+    # their own cache.
+    # See https://github.com/finanalyst/raku-pod-from-cache/blob/master/t/50-multiple-instance.t
+
+    return $data-dir.IO.resolve(:completely) if $data-dir;
+
+    # By default, this will be ~/.cache/raku/rakudoc-data on most Unix
+    # distributions, and ~\.raku\rakudoc-data on Windows and others
+    my IO::Path @candidates = map *.add('rakudoc-data'),
+        # Here is one way to get a system-wide cache: if all raku users are
+        # able to write to the raku installation, then this would probably
+        # work; of course, this will also require file locking to prevent
+        # users racing against each other while updating the cache / indexes
+        #$*REPO.repo-chain.map({.?prefix.?IO // Empty})
+        #        .grep({ $_ ~~ :d & :w })
+        #        .first(not *.absolute.starts-with($*HOME.absolute)),
+        %*ENV<XDG_CACHE_HOME>.?IO.?add('raku') // Empty,
+        %*ENV<XDG_CACHE_HOME>.?IO // Empty,
+        $*HOME.add('.raku'),
+        $*HOME.add('.perl6'),
+        $*CWD;
+        ;
+
+    @candidates.first(*.f) // @candidates.first;
 }
 
 method !paths-for-fragment($fragment is copy, :@extensions!) {
@@ -235,4 +273,15 @@ method !paths-for-fragment($fragment is copy, :@extensions!) {
     }
 
     @paths
+}
+
+method !locate-curli-module($short-name) {
+    # TODO This is only the first one; keep on searching somehow?
+    my $cu = try $*REPO.need(CompUnit::DependencySpecification.new: :$short-name);
+    if $cu {
+        list $cu;
+    }
+    else {
+        Empty;
+    }
 }

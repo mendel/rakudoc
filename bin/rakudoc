@@ -41,6 +41,9 @@ documentation.
 
 C<RAKUDOC> is a comma-separated list of additional directories to search
 
+C<RAKUDOC_DATA> is a path to the directory where Rakudoc caches pre-built
+documents and search indexes.
+
 C<RAKUDOC_PAGER> will be run to view results. If unset, then C<PAGER> will
 be tried. Set C<RAKUDOC_PAGER=""> to disable the pager entirely.
 
