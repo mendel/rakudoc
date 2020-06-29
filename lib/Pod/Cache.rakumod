@@ -1,6 +1,5 @@
 unit class Pod::Cache;
 
-
 has %.sources is SetHash;
 
 has IO::Path $!cache-path;

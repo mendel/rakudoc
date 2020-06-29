@@ -10,16 +10,23 @@ use Pod::To::Text;
 use Pod::Cache:ver(VERSION);
 
 has $.cache;
-has @!doc-source;
-has @!extensions = <pod6 rakudoc pod p6 pm pm6>;
-has $!verbose;
+has @.doc-source;
+has @.extensions = <pod6 rakudoc pod p6 pm pm6>;
+has $.quiet;
+has $.verbose;
+
+my class X::Rakudoc::BadQuery is Exception {
+    has $.query;
+    method message { "Unrecognized query '$!query'" }
+}
 
 submethod TWEAK(:@doc-source is copy, :$!verbose, :$no-default-docs) {
     if !@doc-source and %*ENV<RAKUDOC> {
         @doc-source = %*ENV<RAKUDOC>.split(',').map(*.trim);
     }
     unless $no-default-docs {
-        @doc-source.append: $*REPO.repo-chain.map({.?abspath.IO // Empty})».add('doc');
+        @doc-source.append:
+            $*REPO.repo-chain.map({.?abspath.IO // Empty})».add('doc');
     }
     @!doc-source = grep *.d, map *.IO.resolve(:completely), @doc-source;
     $!cache = Pod::Cache.new: :cache-path<rakudoc-cache>;
@@ -29,8 +36,13 @@ submethod TWEAK(:@doc-source is copy, :$!verbose, :$no-default-docs) {
 role Rakudoc::Doc {
     has $.rakudoc;
     has $.origin;
-    has $!pod;
     has $.def;
+
+    has $!pod;
+
+    submethod TWEAK {
+        note "- ", self unless $!rakudoc.quiet;
+    }
 
     method filename { ... }
     method pod { ... }
@@ -73,7 +85,7 @@ role Rakudoc::Doc {
 
 class Rakudoc::Doc::Path does Rakudoc::Doc {
     method gist {
-        "Doc(*{$!origin.basename})"
+        "Doc(*{$!origin.absolute})"
     }
     method filename {
         ~ $!origin.basename.IO.extension('', :parts(1))
@@ -85,7 +97,7 @@ class Rakudoc::Doc::Path does Rakudoc::Doc {
 
 class Rakudoc::Doc::File is Rakudoc::Doc::Path does Rakudoc::Doc {
     method gist {
-        "Doc(/{$!origin.basename})"
+        "Doc(*{$!origin.absolute})"
     }
     method pod {
         use Pod::Load;
@@ -115,6 +127,8 @@ role Rakudoc::Request {
 class Rakudoc::Request::Module does Rakudoc::Request {
     has $.short-name;
     method search {
+        die "Searching for a routine without a module name is not implemented yet"
+            if not $!short-name;
         | $!rakudoc.search-doc-dirs(self),
         | $!rakudoc.search-compunits(self),
     }
@@ -142,17 +156,17 @@ method request(Str $query) {
 
     #note "PARSE: $/.raku()";
     return Rakudoc::Request::Module.new:
-            :rakudoc(self), :short-name(~$/<module>), :def($/<routine>);
+            :rakudoc(self), :short-name($/<module>), :def($/<routine>);
 }
 
 method search-doc-dirs($request, :@extensions = @!extensions) {
-    self!paths-for-fragment($request.short-name, :@extensions).map: {
+    self!paths-for-fragment(~$request.short-name, :@extensions).map: {
         Rakudoc::Doc::Path.new: :origin($_), :def($request.def), :rakudoc(self);
     }
 }
 
 method search-compunits($request) {
-    self!locate-curli-module($request.short-name).map: {
+    self!locate-curli-module(~$request.short-name).map: {
         Rakudoc::Doc::CompUnit.new: :origin($_), :def($request.def), :rakudoc(self);
     }
 }
@@ -167,6 +181,10 @@ method display(*@docs) {
     else {
         put $text;
     }
+}
+
+method build-index {
+    die "NOT YET IMPLEMENTED";
 }
 
 method !locate-curli-module($short-name) {

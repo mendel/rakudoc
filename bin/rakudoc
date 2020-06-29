@@ -1,5 +1,6 @@
 #! /usr/bin/env raku
 
+use Rakudoc;
 use Rakudoc::CMD :MAIN;
 my %*SUB-MAIN-OPTS = :named-anywhere;
 
@@ -8,8 +9,12 @@ my %*SUB-MAIN-OPTS = :named-anywhere;
 # global variable giving access to USAGE(). Perhaps in the future a simpler
 # mechanism can be devised.
 my &*USAGE = &USAGE;
-sub USAGE(Bool :$okay) {
+sub USAGE(Bool :$okay, Rakudoc :$rakudoc) {
     say $*USAGE;
+
+    if $rakudoc {
+        print "\nDoc directory:\t{$rakudoc.doc-source.join("\n\t\t")}\n";
+    }
 
     require Pod::To::Text;
     say "\n", ::("Pod::To::Text").render($=pod);
@@ -31,11 +36,23 @@ B<rakudoc> - Read Raku documentation
 
 =head1 ENVIRONMENT
 
-C<RAKUDOC> is a comma-separated list of directories to search
+C<RAKULIB> (through Raku's C<$*REPO> variable) is used to find modules and
+documentation.
+
+C<RAKUDOC> is a comma-separated list of additional directories to search
+
+C<RAKUDOC_PAGER> will be run to view results. If unset, then C<PAGER> will
+be tried. Set C<RAKUDOC_PAGER=""> to disable the pager entirely.
 
 =head1 SEE ALSO
 
-Documentable
-https://docs.raku.org/
+=item Documentable
+
+=item https://docs.raku.org/
+
+=head1 LICENSE
+
+Released under the L<Artistic License 2.0|http://www.perlfoundation.org/artistic_license_2_0>.
+
 
 =end pod

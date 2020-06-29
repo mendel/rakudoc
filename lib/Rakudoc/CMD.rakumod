@@ -14,17 +14,19 @@ multi sub MAIN(
     #| Example: 'IO::Path' 'IO::Path.dir' '.dir'
     *@query ($, *@),
 
-    #| Directories to search for documentation
+    #| Additional directories to search for documentation
     Directory :d(:$doc) = Empty,
-    #| Only use directories specified with --doc / $RAKUDOC
+    #| Use only directories specified with --doc / $RAKUDOC
     Bool :D(:$no-default-docs),
 
-    Bool :v(:$verbose),
+    Bool :v(:$verbose),     #= Chatty
+    Bool :q(:$quiet),       #= Taciturn
 ) {
     my $rkd = Rakudoc.new:
         :doc-source($doc),
         :$no-default-docs,
         :$verbose,
+        :$quiet,
         ;
 
     my @requests = @query.map: { $rkd.request: $_ };
@@ -32,6 +34,50 @@ multi sub MAIN(
     $rkd.display(|@docs);
 }
 
-multi sub MAIN(Bool :h(:$help)!, |) {
-    &*USAGE(:okay);
+multi sub MAIN(
+    #| Index all documents found in doc directories
+    Bool :b(:$build-index)!,
+
+    #| Additional directories to search for documentation
+    Directory :d(:$doc) = Empty,
+    #| Use only directories specified with --doc / $RAKUDOC
+    Bool :D(:$no-default-docs),
+
+    Bool :v(:$verbose),
+    Bool :q(:$quiet),
+) {
+    my $rkd = Rakudoc.new:
+        :doc-source($doc),
+        :$no-default-docs,
+        :$verbose,
+        :$quiet,
+        ;
+
+    $rkd.build-index;
+}
+
+multi sub MAIN(
+    Bool :V(:$version)!,
+) {
+    put "$*PROGRAM :auth<{Rakudoc.^auth}>:api<{Rakudoc.^api}>:ver<{Rakudoc.^ver}>";
+}
+
+# NOTE: This multi will match anything, and print usage info; if -h is
+# specified, exit 0 (success), otherwise error.
+multi sub MAIN(
+    Bool :h(:$help),
+
+    #| Additional directories to search for documentation
+    Directory :d(:$doc) = Empty,
+    #| Use only directories specified with --doc / $RAKUDOC
+    Bool :D(:$no-default-docs),
+
+    # NB: Match anything!
+    |
+) {
+    my $rkd = Rakudoc.new:
+        :doc-source($doc),
+        :$no-default-docs,
+        ;
+    &*USAGE(:okay($help), :rakudoc($rkd));
 }
