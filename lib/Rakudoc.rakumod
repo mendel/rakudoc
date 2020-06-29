@@ -30,6 +30,7 @@ role Rakudoc::Doc {
     has $.rakudoc;
     has $.origin;
     has $!pod;
+    has $.def;
 
     method filename { ... }
     method pod { ... }
@@ -43,10 +44,37 @@ role Rakudoc::Doc {
             :pod($.pod.first),
             :$.filename,
     }
-    method Str { .ends-with("\n") ?? $_ !! "$_\n" given pod2text($.pod) }
+    method Str {
+        my $str;
+        if $!def {
+            my Documentable @secondaries;
+
+            for $.documentable.defs -> $def {
+                if $def.name eq $!def {
+                    @secondaries.push($def);
+                }
+            }
+
+            # Documentable is strict about Pod contents currently, and will
+            # probably throw (X::Adhoc) for anything that isn't in the main
+            # doc repo.
+            # TODO Add more specific error handling & warning text
+            CATCH { default { } }
+
+            unless @secondaries {
+                # TODO Add warning text — Where?
+            }
+            $str = @secondaries.map({pod2text(.pod)}).join("\n")
+        }
+
+        $str ||= .ends-with("\n") ?? $_ !! "$_\n" given pod2text($.pod)
+    }
 }
 
 class Rakudoc::Doc::Path does Rakudoc::Doc {
+    method gist {
+        "Doc(*{$!origin.basename})"
+    }
     method filename {
         ~ $!origin.basename.IO.extension('', :parts(1))
     }
@@ -56,6 +84,9 @@ class Rakudoc::Doc::Path does Rakudoc::Doc {
 }
 
 class Rakudoc::Doc::File is Rakudoc::Doc::Path does Rakudoc::Doc {
+    method gist {
+        "Doc(/{$!origin.basename})"
+    }
     method pod {
         use Pod::Load;
         $!pod //= load($!origin.absolute)
@@ -63,8 +94,11 @@ class Rakudoc::Doc::File is Rakudoc::Doc::Path does Rakudoc::Doc {
 }
 
 class Rakudoc::Doc::CompUnit does Rakudoc::Doc {
+    method gist {
+        "Doc({$!origin.repo.prefix} {$!origin})"
+    }
     method filename {
-        $!origin.Str
+        ~ $!origin
     }
     method pod {
         $!pod //= $!rakudoc.cache.pod($!origin.handle)
@@ -74,15 +108,15 @@ class Rakudoc::Doc::CompUnit does Rakudoc::Doc {
 
 role Rakudoc::Request {
     has $.rakudoc;
+    has $.def;
     method search { ... }
 }
 
 class Rakudoc::Request::Module does Rakudoc::Request {
     has $.short-name;
-    has $.defn;
     method search {
-        | $!rakudoc.search-doc-dirs($!short-name),
-        | $!rakudoc.search-compunits($!short-name),
+        | $!rakudoc.search-doc-dirs(self),
+        | $!rakudoc.search-compunits(self),
     }
 }
 
@@ -98,30 +132,32 @@ method request(Str $query) {
         if $query.IO.e;
 
     grammar Rakudoc::Request::Grammar {
-        rule TOP { \S+ }
+        token TOP { <module> <routine>? | <routine> }
+        token module { <-[\s.]> + }
+        token routine { '.' <( <-[\s.]> + )> }
     }
 
     Rakudoc::Request::Grammar.new.parse($query)
         or die X::Rakudoc::BadQuery.new: :$query;
 
-    note "PARSE: $/.raku()";
-    return Rakudoc::Request::Module.new: :short-name(~$/), :rakudoc(self);
+    #note "PARSE: $/.raku()";
+    return Rakudoc::Request::Module.new:
+            :rakudoc(self), :short-name(~$/<module>), :def($/<routine>);
 }
 
-method search-doc-dirs($fragment, :@extensions = @!extensions) {
-    self!paths-for-fragment($fragment, :@extensions).map: {
-        Rakudoc::Doc::Path.new: :origin($_), :rakudoc(self);
+method search-doc-dirs($request, :@extensions = @!extensions) {
+    self!paths-for-fragment($request.short-name, :@extensions).map: {
+        Rakudoc::Doc::Path.new: :origin($_), :def($request.def), :rakudoc(self);
     }
 }
 
-method search-compunits($module) {
-    self!locate-curli-module($module).map: {
-        Rakudoc::Doc::CompUnit.new: :origin($_), :rakudoc(self);
+method search-compunits($request) {
+    self!locate-curli-module($request.short-name).map: {
+        Rakudoc::Doc::CompUnit.new: :origin($_), :def($request.def), :rakudoc(self);
     }
 }
 
 method display(*@docs) {
-    note @docs.map(*.origin);
     my $text = @docs.join("\n\n");;
     my $pager = $*OUT.t && [//] |%*ENV<RAKUDOC_PAGER PAGER>, 'more';
     if $pager {
@@ -137,7 +173,6 @@ method !locate-curli-module($short-name) {
     # TODO This is only the first one; keep on searching somehow?
     my $cu = try $*REPO.need(CompUnit::DependencySpecification.new: :$short-name);
     if $cu {
-        note "- {$cu.repo.prefix} $cu" if $!verbose;
         list $cu;
     }
     else {
@@ -174,7 +209,6 @@ method !paths-for-fragment($fragment is copy, :@extensions!) {
             for @extensions -> $ext {
                 my $path = $dir.add($fragment).extension(:0parts, $ext);
                 if $path.e {
-                    note "- '$path" if $!verbose;
                     push @paths, $path;
                     next DIR;
                 }
